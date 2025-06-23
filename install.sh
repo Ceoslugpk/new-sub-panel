@@ -440,7 +440,7 @@ create_panel_database() {
     # Use mysql_config_editor to avoid password warnings (if available)
     export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
     
-    mysql -u root << EOF 2>/dev/null || mysql -u root -p"$MYSQL_ROOT_PASSWORD" << EOF
+    mysql -u root << 'EOF' 2>/dev/null || mysql -u root -p"$MYSQL_ROOT_PASSWORD" << 'EOF'
 CREATE DATABASE IF NOT EXISTS hosting_panel CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'panel_user'@'localhost' IDENTIFIED BY '$PANEL_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON hosting_panel.* TO 'panel_user'@'localhost';
@@ -465,8 +465,11 @@ CREATE TABLE IF NOT EXISTS users (
     INDEX idx_email (email),
     INDEX idx_status (status)
 );
+EOF
 
--- Create default admin user (password: admin123 - change immediately!)
+    # Create default admin user separately to handle variable substitution
+    mysql -u root -p"$MYSQL_ROOT_PASSWORD" << EOF 2>/dev/null
+USE hosting_panel;
 INSERT INTO users (username, email, password_hash, role) 
 VALUES ('admin', '$ADMIN_EMAIL', '\$2a\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin')
 ON DUPLICATE KEY UPDATE email='$ADMIN_EMAIL';
