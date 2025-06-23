@@ -297,7 +297,6 @@ install_php() {
             php8.1-xml \
             php8.1-zip \
             php8.1-bcmath \
-            php8.1-json \
             php8.1-readline \
             php8.1-intl \
             php8.1-soap \
@@ -332,7 +331,6 @@ install_php() {
             php-xml \
             php-zip \
             php-bcmath \
-            php-json \
             php-intl \
             php-soap \
             php-opcache \
