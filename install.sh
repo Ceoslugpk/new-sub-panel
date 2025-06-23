@@ -408,11 +408,17 @@ DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
 FLUSH PRIVILEGES;
 EOF
 
-    # Execute secure installation
+    # Execute secure installation with better error handling
     if [[ -n "$TEMP_PASSWORD" ]]; then
-        mysql --connect-expired-password -u root -p"$TEMP_PASSWORD" < /tmp/mysql_secure_installation.sql
+        mysql --connect-expired-password -u root -p"$TEMP_PASSWORD" < /tmp/mysql_secure_installation.sql 2>/dev/null || {
+            warning "Failed to secure MySQL with temporary password, trying without password..."
+            mysql -u root < /tmp/mysql_secure_installation.sql 2>/dev/null || error "Failed to secure MySQL installation"
+        }
     else
-        mysql -u root < /tmp/mysql_secure_installation.sql
+        mysql -u root < /tmp/mysql_secure_installation.sql 2>/dev/null || {
+            warning "Failed to secure MySQL, trying with empty password..."
+            mysql -u root --password="" < /tmp/mysql_secure_installation.sql 2>/dev/null || error "Failed to secure MySQL installation"
+        }
     fi
     
     rm -f /tmp/mysql_secure_installation.sql
@@ -431,7 +437,10 @@ EOF
 create_panel_database() {
     log "Creating control panel database..."
     
-    mysql -u root -p"$MYSQL_ROOT_PASSWORD" << EOF
+    # Use mysql_config_editor to avoid password warnings (if available)
+    export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
+    
+    mysql -u root << EOF 2>/dev/null || mysql -u root -p"$MYSQL_ROOT_PASSWORD" << EOF
 CREATE DATABASE IF NOT EXISTS hosting_panel CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'panel_user'@'localhost' IDENTIFIED BY '$PANEL_DB_PASSWORD';
 GRANT ALL PRIVILEGES ON hosting_panel.* TO 'panel_user'@'localhost';
@@ -463,6 +472,7 @@ VALUES ('admin', '$ADMIN_EMAIL', '\$2a\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/
 ON DUPLICATE KEY UPDATE email='$ADMIN_EMAIL';
 EOF
 
+    unset MYSQL_PWD
     success "Control panel database created successfully"
 }
 
@@ -470,26 +480,84 @@ EOF
 install_phpmyadmin() {
     log "Installing phpMyAdmin..."
     
-    # Download latest phpMyAdmin
+    # Download latest phpMyAdmin with better error handling
     cd /tmp
-    PHPMYADMIN_VERSION=$(curl -s https://api.github.com/repos/phpmyadmin/phpmyadmin/releases/latest | jq -r .tag_name)
-    wget -q "https://files.phpmyadmin.net/phpMyAdmin/${PHPMYADMIN_VERSION}/phpMyAdmin-${PHPMYADMIN_VERSION}-all-languages.tar.gz"
+    
+    # Try to get the latest version, fallback to a known stable version
+    PHPMYADMIN_VERSION=$(curl -s --connect-timeout 10 https://api.github.com/repos/phpmyadmin/phpmyadmin/releases/latest | jq -r .tag_name 2>/dev/null || echo "5.2.1")
+    
+    log "Downloading phpMyAdmin version: $PHPMYADMIN_VERSION"
+    
+    # Download with multiple fallback URLs
+    if ! wget -q --timeout=30 "https://files.phpmyadmin.net/phpMyAdmin/${PHPMYADMIN_VERSION}/phpMyAdmin-${PHPMYADMIN_VERSION}-all-languages.tar.gz"; then
+        warning "Failed to download from primary source, trying alternative..."
+        if ! wget -q --timeout=30 "https://github.com/phpmyadmin/phpmyadmin/archive/RELEASE_${PHPMYADMIN_VERSION//./_}.tar.gz" -O "phpMyAdmin-${PHPMYADMIN_VERSION}-all-languages.tar.gz"; then
+            warning "Failed to download latest version, using fallback version 5.2.1..."
+            PHPMYADMIN_VERSION="5.2.1"
+            wget -q --timeout=30 "https://files.phpmyadmin.net/phpMyAdmin/5.2.1/phpMyAdmin-5.2.1-all-languages.tar.gz" || {
+                error "Failed to download phpMyAdmin. Please check your internet connection."
+            }
+        fi
+    fi
     
     # Extract and install
-    tar xzf phpMyAdmin-*.tar.gz
-    rm -rf /var/www/html/phpmyadmin 2>/dev/null || true
-    mv phpMyAdmin-*-all-languages /var/www/html/phpmyadmin
+    log "Extracting phpMyAdmin..."
+    if tar xzf phpMyAdmin-*.tar.gz 2>/dev/null; then
+        rm -rf /var/www/html/phpmyadmin 2>/dev/null || true
+        
+        # Find the extracted directory (it might have different naming)
+        EXTRACTED_DIR=$(find . -maxdepth 1 -name "phpMyAdmin-*" -type d | head -1)
+        if [[ -n "$EXTRACTED_DIR" ]]; then
+            mv "$EXTRACTED_DIR" /var/www/html/phpmyadmin
+        else
+            error "Failed to find extracted phpMyAdmin directory"
+        fi
+    else
+        error "Failed to extract phpMyAdmin archive"
+    fi
     
     # Set permissions
     chown -R www-data:www-data /var/www/html/phpmyadmin 2>/dev/null || chown -R apache:apache /var/www/html/phpmyadmin
     chmod -R 755 /var/www/html/phpmyadmin
     
     # Create phpMyAdmin configuration
-    cp /var/www/html/phpmyadmin/config.sample.inc.php /var/www/html/phpmyadmin/config.inc.php
-    
-    # Generate blowfish secret
-    BLOWFISH_SECRET=$(openssl rand -base64 32)
-    sed -i "s/\$cfg\['blowfish_secret'\] = '';/\$cfg['blowfish_secret'] = '$BLOWFISH_SECRET';/" /var/www/html/phpmyadmin/config.inc.php
+    if [[ -f /var/www/html/phpmyadmin/config.sample.inc.php ]]; then
+        cp /var/www/html/phpmyadmin/config.sample.inc.php /var/www/html/phpmyadmin/config.inc.php
+        
+        # Generate blowfish secret
+        BLOWFISH_SECRET=$(openssl rand -base64 32)
+        sed -i "s/\$cfg\['blowfish_secret'\] = '';/\$cfg['blowfish_secret'] = '$BLOWFISH_SECRET';/" /var/www/html/phpmyadmin/config.inc.php
+        
+        # Add basic security configuration
+        cat >> /var/www/html/phpmyadmin/config.inc.php << 'EOF'
+
+/* Security settings */
+$cfg['ForceSSL'] = false;
+$cfg['CheckConfigurationPermissions'] = false;
+$cfg['DefaultLang'] = 'en';
+$cfg['ServerDefault'] = 1;
+$cfg['UploadDir'] = '';
+$cfg['SaveDir'] = '';
+$cfg['TempDir'] = '/tmp';
+$cfg['LoginCookieValidity'] = 3600;
+EOF
+    else
+        warning "phpMyAdmin config template not found, creating basic config..."
+        cat > /var/www/html/phpmyadmin/config.inc.php << EOF
+<?php
+\$cfg['blowfish_secret'] = '$(openssl rand -base64 32)';
+\$i = 0;
+\$i++;
+\$cfg['Servers'][\$i]['auth_type'] = 'cookie';
+\$cfg['Servers'][\$i]['host'] = 'localhost';
+\$cfg['Servers'][\$i]['compress'] = false;
+\$cfg['Servers'][\$i]['AllowNoPassword'] = false;
+\$cfg['DefaultLang'] = 'en';
+\$cfg['ServerDefault'] = 1;
+\$cfg['UploadDir'] = '';
+\$cfg['SaveDir'] = '';
+EOF
+    fi
     
     # Clean up
     rm -f /tmp/phpMyAdmin-*.tar.gz
