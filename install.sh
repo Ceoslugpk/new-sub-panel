@@ -483,48 +483,178 @@ EOF
 install_phpmyadmin() {
     log "Installing phpMyAdmin..."
     
+    # Create phpMyAdmin directory first
+    mkdir -p /var/www/html/phpmyadmin
+    
     # Download latest phpMyAdmin with better error handling
     cd /tmp
     
-    # Try to get the latest version, fallback to a known stable version
-    PHPMYADMIN_VERSION=$(curl -s --connect-timeout 10 https://api.github.com/repos/phpmyadmin/phpmyadmin/releases/latest | jq -r .tag_name 2>/dev/null || echo "5.2.1")
+    # Clean up any existing files
+    rm -f phpMyAdmin-*.tar.gz 2>/dev/null || true
+    rm -rf phpMyAdmin-* 2>/dev/null || true
     
-    log "Downloading phpMyAdmin version: $PHPMYADMIN_VERSION"
+    # Try multiple download sources with fallbacks
+    PHPMYADMIN_INSTALLED=false
     
-    # Download with multiple fallback URLs
-    if ! wget -q --timeout=30 "https://files.phpmyadmin.net/phpMyAdmin/${PHPMYADMIN_VERSION}/phpMyAdmin-${PHPMYADMIN_VERSION}-all-languages.tar.gz"; then
-        warning "Failed to download from primary source, trying alternative..."
-        if ! wget -q --timeout=30 "https://github.com/phpmyadmin/phpmyadmin/archive/RELEASE_${PHPMYADMIN_VERSION//./_}.tar.gz" -O "phpMyAdmin-${PHPMYADMIN_VERSION}-all-languages.tar.gz"; then
-            warning "Failed to download latest version, using fallback version 5.2.1..."
-            PHPMYADMIN_VERSION="5.2.1"
-            wget -q --timeout=30 "https://files.phpmyadmin.net/phpMyAdmin/5.2.1/phpMyAdmin-5.2.1-all-languages.tar.gz" || {
-                error "Failed to download phpMyAdmin. Please check your internet connection."
-            }
-        fi
-    fi
-    
-    # Extract and install
-    log "Extracting phpMyAdmin..."
-    if tar xzf phpMyAdmin-*.tar.gz 2>/dev/null; then
-        rm -rf /var/www/html/phpmyadmin 2>/dev/null || true
+    # Method 1: Try latest version from GitHub releases
+    log "Attempting to download phpMyAdmin from GitHub..."
+    if curl -s --connect-timeout 10 https://api.github.com/repos/phpmyadmin/phpmyadmin/releases/latest | grep -q "tag_name"; then
+        PHPMYADMIN_VERSION=$(curl -s --connect-timeout 10 https://api.github.com/repos/phpmyadmin/phpmyadmin/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+        log "Found latest version: $PHPMYADMIN_VERSION"
         
-        # Find the extracted directory (it might have different naming)
-        EXTRACTED_DIR=$(find . -maxdepth 1 -name "phpMyAdmin-*" -type d | head -1)
-        if [[ -n "$EXTRACTED_DIR" ]]; then
-            mv "$EXTRACTED_DIR" /var/www/html/phpmyadmin
-        else
-            error "Failed to find extracted phpMyAdmin directory"
+        if wget -q --timeout=30 --tries=3 "https://files.phpmyadmin.net/phpMyAdmin/${PHPMYADMIN_VERSION}/phpMyAdmin-${PHPMYADMIN_VERSION}-all-languages.tar.gz"; then
+            if tar -tf phpMyAdmin-*.tar.gz >/dev/null 2>&1; then
+                log "Successfully downloaded and verified phpMyAdmin ${PHPMYADMIN_VERSION}"
+                if tar xzf phpMyAdmin-*.tar.gz 2>/dev/null; then
+                    EXTRACTED_DIR=$(find . -maxdepth 1 -name "phpMyAdmin-*" -type d | head -1)
+                    if [[ -n "$EXTRACTED_DIR" && -d "$EXTRACTED_DIR" ]]; then
+                        cp -r "$EXTRACTED_DIR"/* /var/www/html/phpmyadmin/
+                        PHPMYADMIN_INSTALLED=true
+                        log "phpMyAdmin extracted successfully"
+                    fi
+                fi
+            fi
         fi
-    else
-        error "Failed to extract phpMyAdmin archive"
     fi
     
-    # Set permissions
+    # Method 2: Try stable version 5.2.1 if latest failed
+    if [[ "$PHPMYADMIN_INSTALLED" == "false" ]]; then
+        warning "Latest version failed, trying stable version 5.2.1..."
+        rm -f phpMyAdmin-*.tar.gz 2>/dev/null || true
+        rm -rf phpMyAdmin-* 2>/dev/null || true
+        
+        if wget -q --timeout=30 --tries=3 "https://files.phpmyadmin.net/phpMyAdmin/5.2.1/phpMyAdmin-5.2.1-all-languages.tar.gz"; then
+            if tar -tf phpMyAdmin-*.tar.gz >/dev/null 2>&1; then
+                if tar xzf phpMyAdmin-*.tar.gz 2>/dev/null; then
+                    EXTRACTED_DIR=$(find . -maxdepth 1 -name "phpMyAdmin-*" -type d | head -1)
+                    if [[ -n "$EXTRACTED_DIR" && -d "$EXTRACTED_DIR" ]]; then
+                        cp -r "$EXTRACTED_DIR"/* /var/www/html/phpmyadmin/
+                        PHPMYADMIN_INSTALLED=true
+                        log "phpMyAdmin 5.2.1 extracted successfully"
+                    fi
+                fi
+            fi
+        fi
+    fi
+    
+    # Method 3: Try alternative mirror
+    if [[ "$PHPMYADMIN_INSTALLED" == "false" ]]; then
+        warning "Primary sources failed, trying alternative mirror..."
+        rm -f phpMyAdmin-*.tar.gz 2>/dev/null || true
+        rm -rf phpMyAdmin-* 2>/dev/null || true
+        
+        if wget -q --timeout=30 --tries=3 "https://github.com/phpmyadmin/phpmyadmin/archive/refs/tags/RELEASE_5_2_1.tar.gz" -O "phpMyAdmin-5.2.1.tar.gz"; then
+            if tar -tf phpMyAdmin-*.tar.gz >/dev/null 2>&1; then
+                if tar xzf phpMyAdmin-*.tar.gz 2>/dev/null; then
+                    EXTRACTED_DIR=$(find . -maxdepth 1 -name "*phpmyadmin*" -type d | head -1)
+                    if [[ -n "$EXTRACTED_DIR" && -d "$EXTRACTED_DIR" ]]; then
+                        cp -r "$EXTRACTED_DIR"/* /var/www/html/phpmyadmin/
+                        PHPMYADMIN_INSTALLED=true
+                        log "phpMyAdmin from GitHub mirror extracted successfully"
+                    fi
+                fi
+            fi
+        fi
+    fi
+    
+    # Method 4: Install via package manager as last resort
+    if [[ "$PHPMYADMIN_INSTALLED" == "false" ]]; then
+        warning "All download methods failed, trying package manager installation..."
+        
+        if [[ "$PACKAGE_MANAGER" == "apt-get" ]]; then
+            # Pre-configure phpMyAdmin to avoid interactive prompts
+            echo "phpmyadmin phpmyadmin/dbconfig-install boolean true" | debconf-set-selections
+            echo "phpmyadmin phpmyadmin/app-password-confirm password " | debconf-set-selections
+            echo "phpmyadmin phpmyadmin/mysql/admin-pass password $MYSQL_ROOT_PASSWORD" | debconf-set-selections
+            echo "phpmyadmin phpmyadmin/mysql/app-pass password " | debconf-set-selections
+            echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect apache2" | debconf-set-selections
+            
+            if apt-get install -y phpmyadmin 2>/dev/null; then
+                # Create symlink if not exists
+                if [[ ! -L /var/www/html/phpmyadmin ]]; then
+                    ln -s /usr/share/phpmyadmin /var/www/html/phpmyadmin
+                fi
+                PHPMYADMIN_INSTALLED=true
+                log "phpMyAdmin installed via package manager"
+            fi
+        else
+            # For CentOS/RHEL, try EPEL
+            if yum install -y phpmyadmin 2>/dev/null; then
+                if [[ ! -L /var/www/html/phpmyadmin ]]; then
+                    ln -s /usr/share/phpMyAdmin /var/www/html/phpmyadmin
+                fi
+                PHPMYADMIN_INSTALLED=true
+                log "phpMyAdmin installed via package manager"
+            fi
+        fi
+    fi
+    
+    # Method 5: Create a minimal phpMyAdmin alternative if all else fails
+    if [[ "$PHPMYADMIN_INSTALLED" == "false" ]]; then
+        warning "All phpMyAdmin installation methods failed. Creating basic database management page..."
+        
+        mkdir -p /var/www/html/phpmyadmin
+        cat > /var/www/html/phpmyadmin/index.php << 'EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Management</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+        .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .alert { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; margin: 5px; }
+        .btn:hover { background: #0056b3; }
+        h1 { color: #333; margin-bottom: 20px; }
+        .info { background: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; padding: 15px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗄️ Database Management</h1>
+        
+        <div class="alert">
+            <strong>Notice:</strong> phpMyAdmin installation failed. This is a temporary database management interface.
+        </div>
+        
+        <div class="info">
+            <h3>Database Access Information:</h3>
+            <p><strong>Host:</strong> localhost</p>
+            <p><strong>Username:</strong> root</p>
+            <p><strong>Database:</strong> hosting_panel</p>
+            <p><strong>Panel User:</strong> panel_user</p>
+        </div>
+        
+        <h3>Alternative Database Management Options:</h3>
+        <a href="#" class="btn" onclick="alert('Use: mysql -u root -p')">Command Line Access</a>
+        <a href="https://www.adminer.org/" class="btn" target="_blank">Download Adminer</a>
+        <a href="https://www.phpmyadmin.net/" class="btn" target="_blank">Manual phpMyAdmin Download</a>
+        
+        <h3>Quick Commands:</h3>
+        <div class="info">
+            <p><code>mysql -u root -p</code> - Access MySQL as root</p>
+            <p><code>mysql -u panel_user -p hosting_panel</code> - Access panel database</p>
+            <p><code>SHOW DATABASES;</code> - List all databases</p>
+            <p><code>USE hosting_panel;</code> - Select panel database</p>
+            <p><code>SHOW TABLES;</code> - List tables in current database</p>
+        </div>
+    </div>
+</body>
+</html>
+EOF
+        
+        PHPMYADMIN_INSTALLED=true
+        warning "Created basic database management interface at /var/www/html/phpmyadmin/"
+    fi
+    
+    # Set permissions regardless of installation method
     chown -R www-data:www-data /var/www/html/phpmyadmin 2>/dev/null || chown -R apache:apache /var/www/html/phpmyadmin
     chmod -R 755 /var/www/html/phpmyadmin
     
-    # Create phpMyAdmin configuration
-    if [[ -f /var/www/html/phpmyadmin/config.sample.inc.php ]]; then
+    # Create or update phpMyAdmin configuration if it doesn't exist
+    if [[ ! -f /var/www/html/phpmyadmin/config.inc.php ]] && [[ -f /var/www/html/phpmyadmin/config.sample.inc.php ]]; then
         cp /var/www/html/phpmyadmin/config.sample.inc.php /var/www/html/phpmyadmin/config.inc.php
         
         # Generate blowfish secret
@@ -544,8 +674,8 @@ $cfg['SaveDir'] = '';
 $cfg['TempDir'] = '/tmp';
 $cfg['LoginCookieValidity'] = 3600;
 EOF
-    else
-        warning "phpMyAdmin config template not found, creating basic config..."
+    elif [[ ! -f /var/www/html/phpmyadmin/config.inc.php ]]; then
+        # Create basic config if no sample exists
         cat > /var/www/html/phpmyadmin/config.inc.php << EOF
 <?php
 \$cfg['blowfish_secret'] = '$(openssl rand -base64 32)';
@@ -562,10 +692,17 @@ EOF
 EOF
     fi
     
-    # Clean up
-    rm -f /tmp/phpMyAdmin-*.tar.gz
+    # Clean up temporary files
+    cd /tmp
+    rm -f phpMyAdmin-*.tar.gz 2>/dev/null || true
+    rm -rf phpMyAdmin-* 2>/dev/null || true
+    rm -rf *phpmyadmin* 2>/dev/null || true
     
-    success "phpMyAdmin installed successfully"
+    if [[ "$PHPMYADMIN_INSTALLED" == "true" ]]; then
+        success "Database management interface installed successfully"
+    else
+        error "Failed to install any database management interface"
+    fi
 }
 
 # Create control panel application
