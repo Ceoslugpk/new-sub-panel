@@ -1,14 +1,29 @@
 import { type NextRequest, NextResponse } from "next/server"
-import bcrypt from "bcryptjs"
-import jwt from "jsonwebtoken"
-import mysql from "mysql2/promise"
 
-const dbConfig = {
-  host: "localhost",
-  user: "panel_user",
-  password: process.env.PANEL_DB_PASSWORD,
-  database: "hosting_panel",
-}
+// Simple in-memory user store for demo purposes
+const users = [
+  {
+    id: 1,
+    username: "admin",
+    email: "admin@example.com",
+    password: "admin123", // In production, this would be hashed
+    role: "admin",
+  },
+  {
+    id: 2,
+    username: "user1",
+    email: "user1@example.com",
+    password: "user123",
+    role: "user",
+  },
+  {
+    id: 3,
+    username: "reseller1",
+    email: "reseller1@example.com",
+    password: "reseller123",
+    role: "reseller",
+  },
+]
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,39 +33,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Username and password required" }, { status: 400 })
     }
 
-    const connection = await mysql.createConnection(dbConfig)
+    // Find user
+    const user = users.find((u) => u.username === username && u.password === password)
 
-    const [rows] = await connection.execute('SELECT * FROM users WHERE username = ? AND status = "active"', [username])
-
-    await connection.end()
-
-    const users = rows as any[]
-    if (users.length === 0) {
+    if (!user) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 })
     }
 
-    const user = users[0]
-    const isValidPassword = await bcrypt.compare(password, user.password_hash)
-
-    if (!isValidPassword) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 })
-    }
-
-    // Update last login
-    const updateConnection = await mysql.createConnection(dbConfig)
-    await updateConnection.execute("UPDATE users SET last_login = NOW() WHERE id = ?", [user.id])
-    await updateConnection.end()
-
-    // Create JWT token
-    const token = jwt.sign(
-      {
+    // Create a simple token (in production, use proper JWT)
+    const token = Buffer.from(
+      JSON.stringify({
         userId: user.id,
         username: user.username,
         role: user.role,
-      },
-      process.env.NEXTAUTH_SECRET || "fallback-secret",
-      { expiresIn: "24h" },
-    )
+        exp: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
+      }),
+    ).toString("base64")
 
     const response = NextResponse.json({
       success: true,

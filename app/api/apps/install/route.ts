@@ -13,12 +13,68 @@ const dbConfig = {
   database: "hosting_panel",
 }
 
+const availableApps = [
+  {
+    id: "wordpress",
+    name: "WordPress",
+    description: "Popular CMS for blogs and websites",
+    icon: "🌐",
+    category: "CMS",
+    requirements: ["PHP", "MySQL"],
+  },
+  {
+    id: "joomla",
+    name: "Joomla",
+    description: "Flexible content management system",
+    icon: "🏗️",
+    category: "CMS",
+    requirements: ["PHP", "MySQL"],
+  },
+  {
+    id: "drupal",
+    name: "Drupal",
+    description: "Enterprise-grade CMS platform",
+    icon: "🔧",
+    category: "CMS",
+    requirements: ["PHP", "MySQL"],
+  },
+  {
+    id: "laravel",
+    name: "Laravel",
+    description: "Modern PHP framework",
+    icon: "⚡",
+    category: "Framework",
+    requirements: ["PHP", "Composer", "MySQL"],
+  },
+  {
+    id: "nextjs",
+    name: "Next.js",
+    description: "React framework for production",
+    icon: "⚛️",
+    category: "Framework",
+    requirements: ["Node.js", "npm"],
+  },
+  {
+    id: "phpmyadmin",
+    name: "phpMyAdmin",
+    description: "MySQL administration tool",
+    icon: "🗄️",
+    category: "Tool",
+    requirements: ["PHP", "MySQL"],
+  },
+]
+
 export async function POST(request: NextRequest) {
   try {
     const { domain, app, dbName, dbUser, dbPassword } = await request.json()
 
     if (!domain || !app) {
-      return NextResponse.json({ error: "Domain and app are required" }, { status: 400 })
+      return NextResponse.json({ error: "Domain and application are required" }, { status: 400 })
+    }
+
+    const selectedApp = availableApps.find((a) => a.id === app)
+    if (!selectedApp) {
+      return NextResponse.json({ error: "Invalid application selected" }, { status: 400 })
     }
 
     const documentRoot = `/var/www/${domain}`
@@ -280,51 +336,9 @@ function generateRandomString(length: number): string {
 
 export async function GET() {
   try {
-    const apps = [
-      {
-        id: "wordpress",
-        name: "WordPress",
-        description: "Popular CMS for blogs and websites",
-        icon: "📝",
-        category: "CMS",
-        requirements: ["PHP", "MySQL"],
-      },
-      {
-        id: "joomla",
-        name: "Joomla",
-        description: "Flexible content management system",
-        icon: "🏗️",
-        category: "CMS",
-        requirements: ["PHP", "MySQL"],
-      },
-      {
-        id: "drupal",
-        name: "Drupal",
-        description: "Advanced content management platform",
-        icon: "🔧",
-        category: "CMS",
-        requirements: ["PHP", "MySQL"],
-      },
-      {
-        id: "laravel",
-        name: "Laravel",
-        description: "PHP framework for web applications",
-        icon: "⚡",
-        category: "Framework",
-        requirements: ["PHP", "Composer", "MySQL"],
-      },
-      {
-        id: "nextjs",
-        name: "Next.js",
-        description: "React framework for production",
-        icon: "⚛️",
-        category: "Framework",
-        requirements: ["Node.js", "npm"],
-      },
-    ]
-
-    return NextResponse.json({ apps })
-  } catch (error: any) {
-    return NextResponse.json({ error: "Failed to fetch apps" }, { status: 500 })
+    return NextResponse.json({ apps: availableApps })
+  } catch (error) {
+    console.error("Error fetching apps:", error)
+    return NextResponse.json({ error: "Failed to fetch applications" }, { status: 500 })
   }
 }

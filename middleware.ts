@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
-import jwt from "jsonwebtoken"
 
 export function middleware(request: NextRequest) {
   // Skip middleware for login page and API auth routes
-  if (request.nextUrl.pathname === "/login" || request.nextUrl.pathname.startsWith("/api/auth/login")) {
+  if (
+    request.nextUrl.pathname === "/login" ||
+    request.nextUrl.pathname.startsWith("/api/auth/login") ||
+    request.nextUrl.pathname.startsWith("/_next") ||
+    request.nextUrl.pathname.startsWith("/favicon")
+  ) {
     return NextResponse.next()
   }
 
@@ -16,10 +20,22 @@ export function middleware(request: NextRequest) {
   }
 
   try {
-    jwt.verify(token, process.env.NEXTAUTH_SECRET || "fallback-secret")
+    // Decode and validate token
+    const userData = JSON.parse(Buffer.from(token, "base64").toString())
+
+    // Check if token is expired
+    if (userData.exp < Date.now()) {
+      const response = NextResponse.redirect(new URL("/login", request.url))
+      response.cookies.delete("auth-token")
+      return response
+    }
+
     return NextResponse.next()
   } catch (error) {
-    return NextResponse.redirect(new URL("/login", request.url))
+    // Invalid token, redirect to login
+    const response = NextResponse.redirect(new URL("/login", request.url))
+    response.cookies.delete("auth-token")
+    return response
   }
 }
 
