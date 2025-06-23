@@ -6,6 +6,17 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { toast } from "@/components/ui/use-toast"
 import {
   Server,
   Database,
@@ -21,6 +32,11 @@ import {
   AlertTriangle,
   CheckCircle,
   Clock,
+  Plus,
+  Settings,
+  FileText,
+  Download,
+  Upload,
 } from "lucide-react"
 
 interface SystemStats {
@@ -36,6 +52,29 @@ interface ServiceStatus {
   name: string
   status: "running" | "stopped" | "error"
   port?: number
+}
+
+interface Domain {
+  id: number
+  name: string
+  status: string
+  created: string
+}
+
+interface EmailAccount {
+  id: number
+  email: string
+  quota: number
+  used: number
+  created: string
+}
+
+interface DatabaseAccount {
+  id: number
+  name: string
+  user: string
+  size: string
+  created: string
 }
 
 export default function Dashboard() {
@@ -58,6 +97,15 @@ export default function Dashboard() {
     { name: "ProFTPD", status: "running", port: 21 },
     { name: "Fail2Ban", status: "running" },
   ])
+
+  const [domains, setDomains] = useState<Domain[]>([])
+  const [emails, setEmails] = useState<EmailAccount[]>([])
+  const [databases, setDatabases] = useState<DatabaseAccount[]>([])
+
+  // Form states
+  const [newDomain, setNewDomain] = useState("")
+  const [newEmail, setNewEmail] = useState({ email: "", password: "", quota: "1000" })
+  const [newDatabase, setNewDatabase] = useState({ name: "", username: "", password: "" })
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -118,6 +166,187 @@ export default function Dashboard() {
         return <AlertTriangle className="h-4 w-4 text-red-500" />
       default:
         return <AlertTriangle className="h-4 w-4 text-gray-500" />
+    }
+  }
+
+  const handleCreateDomain = async () => {
+    if (!newDomain) {
+      toast({
+        title: "Error",
+        description: "Please enter a domain name",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const response = await fetch("/api/domain/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: newDomain }),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast({
+          title: "Success",
+          description: `Domain ${newDomain} created successfully`,
+        })
+        setDomains([
+          ...domains,
+          {
+            id: Date.now(),
+            name: newDomain,
+            status: "Active",
+            created: new Date().toLocaleDateString(),
+          },
+        ])
+        setNewDomain("")
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Error",
+          description: error.error || "Failed to create domain",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Network error occurred",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleCreateEmail = async () => {
+    if (!newEmail.email || !newEmail.password) {
+      toast({
+        title: "Error",
+        description: "Please fill in all fields",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const response = await fetch("/api/email/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newEmail),
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: `Email account ${newEmail.email} created successfully`,
+        })
+        setEmails([
+          ...emails,
+          {
+            id: Date.now(),
+            email: newEmail.email,
+            quota: Number.parseInt(newEmail.quota),
+            used: 0,
+            created: new Date().toLocaleDateString(),
+          },
+        ])
+        setNewEmail({ email: "", password: "", quota: "1000" })
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Error",
+          description: error.error || "Failed to create email account",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Network error occurred",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleCreateDatabase = async () => {
+    if (!newDatabase.name || !newDatabase.username || !newDatabase.password) {
+      toast({
+        title: "Error",
+        description: "Please fill in all fields",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const response = await fetch("/api/database/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dbName: newDatabase.name,
+          username: newDatabase.username,
+          password: newDatabase.password,
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: `Database ${newDatabase.name} created successfully`,
+        })
+        setDatabases([
+          ...databases,
+          {
+            id: Date.now(),
+            name: newDatabase.name,
+            user: newDatabase.username,
+            size: "0 MB",
+            created: new Date().toLocaleDateString(),
+          },
+        ])
+        setNewDatabase({ name: "", username: "", password: "" })
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Error",
+          description: error.error || "Failed to create database",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Network error occurred",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleBackup = async () => {
+    try {
+      const response = await fetch("/api/backup/create", {
+        method: "POST",
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: "Backup created successfully",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to create backup",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Network error occurred",
+        variant: "destructive",
+      })
     }
   }
 
@@ -192,10 +421,10 @@ export default function Dashboard() {
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="files">Files</TabsTrigger>
-            <TabsTrigger value="databases">Databases</TabsTrigger>
-            <TabsTrigger value="email">Email</TabsTrigger>
             <TabsTrigger value="domains">Domains</TabsTrigger>
+            <TabsTrigger value="email">Email</TabsTrigger>
+            <TabsTrigger value="databases">Databases</TabsTrigger>
+            <TabsTrigger value="files">Files</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
           </TabsList>
 
@@ -241,26 +470,274 @@ export default function Dashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 gap-4">
+                    <Button variant="outline" className="h-20 flex flex-col" onClick={handleBackup}>
+                      <Download className="h-6 w-6 mb-2" />
+                      Create Backup
+                    </Button>
                     <Button variant="outline" className="h-20 flex flex-col">
                       <Server className="h-6 w-6 mb-2" />
                       Restart Services
-                    </Button>
-                    <Button variant="outline" className="h-20 flex flex-col">
-                      <Database className="h-6 w-6 mb-2" />
-                      Backup Database
                     </Button>
                     <Button variant="outline" className="h-20 flex flex-col">
                       <Shield className="h-6 w-6 mb-2" />
                       Security Scan
                     </Button>
                     <Button variant="outline" className="h-20 flex flex-col">
-                      <Activity className="h-6 w-6 mb-2" />
+                      <FileText className="h-6 w-6 mb-2" />
                       View Logs
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          <TabsContent value="domains">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <Globe className="h-5 w-5 mr-2" />
+                      Domain Management
+                    </CardTitle>
+                    <CardDescription>Manage your domains and subdomains</CardDescription>
+                  </div>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Domain
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Add New Domain</DialogTitle>
+                        <DialogDescription>Enter the domain name you want to add to your server.</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="domain">Domain Name</Label>
+                          <Input
+                            id="domain"
+                            placeholder="example.com"
+                            value={newDomain}
+                            onChange={(e) => setNewDomain(e.target.value)}
+                          />
+                        </div>
+                        <Button onClick={handleCreateDomain} className="w-full">
+                          Create Domain
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {domains.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No domains configured. Add your first domain to get started.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {domains.map((domain) => (
+                      <div key={domain.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div>
+                          <h3 className="font-medium">{domain.name}</h3>
+                          <p className="text-sm text-gray-500">Created: {domain.created}</p>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Badge variant="outline" className="text-green-600">
+                            {domain.status}
+                          </Badge>
+                          <Button variant="outline" size="sm">
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="email">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <Mail className="h-5 w-5 mr-2" />
+                      Email Management
+                    </CardTitle>
+                    <CardDescription>Configure email accounts and settings</CardDescription>
+                  </div>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Email
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Create Email Account</DialogTitle>
+                        <DialogDescription>Create a new email account for your domain.</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="email">Email Address</Label>
+                          <Input
+                            id="email"
+                            placeholder="user@example.com"
+                            value={newEmail.email}
+                            onChange={(e) => setNewEmail({ ...newEmail, email: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="password">Password</Label>
+                          <Input
+                            id="password"
+                            type="password"
+                            value={newEmail.password}
+                            onChange={(e) => setNewEmail({ ...newEmail, password: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="quota">Quota (MB)</Label>
+                          <Input
+                            id="quota"
+                            type="number"
+                            value={newEmail.quota}
+                            onChange={(e) => setNewEmail({ ...newEmail, quota: e.target.value })}
+                          />
+                        </div>
+                        <Button onClick={handleCreateEmail} className="w-full">
+                          Create Email Account
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {emails.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No email accounts configured. Create your first email account.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {emails.map((email) => (
+                      <div key={email.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div>
+                          <h3 className="font-medium">{email.email}</h3>
+                          <p className="text-sm text-gray-500">
+                            {email.used}MB / {email.quota}MB used • Created: {email.created}
+                          </p>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Progress value={(email.used / email.quota) * 100} className="w-20" />
+                          <Button variant="outline" size="sm">
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="databases">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <Database className="h-5 w-5 mr-2" />
+                      Database Management
+                    </CardTitle>
+                    <CardDescription>Manage MySQL and PostgreSQL databases</CardDescription>
+                  </div>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Database
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Create Database</DialogTitle>
+                        <DialogDescription>Create a new MySQL database with a user account.</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="dbname">Database Name</Label>
+                          <Input
+                            id="dbname"
+                            placeholder="my_database"
+                            value={newDatabase.name}
+                            onChange={(e) => setNewDatabase({ ...newDatabase, name: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="dbuser">Username</Label>
+                          <Input
+                            id="dbuser"
+                            placeholder="db_user"
+                            value={newDatabase.username}
+                            onChange={(e) => setNewDatabase({ ...newDatabase, username: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="dbpass">Password</Label>
+                          <Input
+                            id="dbpass"
+                            type="password"
+                            value={newDatabase.password}
+                            onChange={(e) => setNewDatabase({ ...newDatabase, password: e.target.value })}
+                          />
+                        </div>
+                        <Button onClick={handleCreateDatabase} className="w-full">
+                          Create Database
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {databases.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No databases configured. Create your first database.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {databases.map((db) => (
+                      <div key={db.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div>
+                          <h3 className="font-medium">{db.name}</h3>
+                          <p className="text-sm text-gray-500">
+                            User: {db.user} • Size: {db.size} • Created: {db.created}
+                          </p>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Button variant="outline" size="sm">
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button variant="outline" size="sm">
+                            phpMyAdmin
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="files">
@@ -279,96 +756,12 @@ export default function Dashboard() {
                     File Manager
                   </Button>
                   <Button variant="outline" className="h-24 flex flex-col">
-                    <Network className="h-8 w-8 mb-2" />
-                    FTP Accounts
+                    <Upload className="h-8 w-8 mb-2" />
+                    Upload Files
                   </Button>
                   <Button variant="outline" className="h-24 flex flex-col">
-                    <Shield className="h-8 w-8 mb-2" />
-                    Directory Privacy
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="databases">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Database className="h-5 w-5 mr-2" />
-                  Database Management
-                </CardTitle>
-                <CardDescription>Manage MySQL and PostgreSQL databases</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Button variant="outline" className="h-24 flex flex-col">
-                    <Database className="h-8 w-8 mb-2" />
-                    MySQL Databases
-                  </Button>
-                  <Button variant="outline" className="h-24 flex flex-col">
-                    <Users className="h-8 w-8 mb-2" />
-                    Database Users
-                  </Button>
-                  <Button variant="outline" className="h-24 flex flex-col">
-                    <Activity className="h-8 w-8 mb-2" />
-                    phpMyAdmin
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="email">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Mail className="h-5 w-5 mr-2" />
-                  Email Management
-                </CardTitle>
-                <CardDescription>Configure email accounts and settings</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Button variant="outline" className="h-24 flex flex-col">
-                    <Mail className="h-8 w-8 mb-2" />
-                    Email Accounts
-                  </Button>
-                  <Button variant="outline" className="h-24 flex flex-col">
-                    <Network className="h-8 w-8 mb-2" />
-                    Email Forwarders
-                  </Button>
-                  <Button variant="outline" className="h-24 flex flex-col">
-                    <Shield className="h-8 w-8 mb-2" />
-                    Email Filters
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="domains">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Globe className="h-5 w-5 mr-2" />
-                  Domain Management
-                </CardTitle>
-                <CardDescription>Manage domains, subdomains, and DNS settings</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Button variant="outline" className="h-24 flex flex-col">
-                    <Globe className="h-8 w-8 mb-2" />
-                    Addon Domains
-                  </Button>
-                  <Button variant="outline" className="h-24 flex flex-col">
-                    <Network className="h-8 w-8 mb-2" />
-                    Subdomains
-                  </Button>
-                  <Button variant="outline" className="h-24 flex flex-col">
-                    <Activity className="h-8 w-8 mb-2" />
-                    DNS Zone Editor
+                    <Download className="h-8 w-8 mb-2" />
+                    Download Backup
                   </Button>
                 </div>
               </CardContent>

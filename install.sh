@@ -23,6 +23,7 @@ CONTROL_PANEL_DIR="/opt/hosting-panel"
 ADMIN_EMAIL=""
 DOMAIN_NAME=""
 INSTALL_LOG="/var/log/hosting-panel-install.log"
+GITHUB_REPO="https://github.com/Ceoslugpk/new-sub-panel.git"
 
 # Create log file
 touch $INSTALL_LOG
@@ -61,6 +62,8 @@ show_banner() {
     echo "║                                                              ║"
     echo "║           Professional cPanel/Plesk Alternative             ║"
     echo "║                                                              ║"
+    echo "║           Repository: Ceoslugpk/new-sub-panel               ║"
+    echo "║                                                              ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
@@ -97,6 +100,7 @@ get_user_input() {
     log "Server IP: $SERVER_IP"
     log "Admin Email: $ADMIN_EMAIL"
     log "Domain: ${DOMAIN_NAME:-"Not specified"}"
+    log "Repository: $GITHUB_REPO"
     
     read -p "Continue with installation? (y/N): " -n 1 -r
     echo
@@ -707,72 +711,24 @@ EOF
 
 # Create control panel application
 create_control_panel_app() {
-    log "Creating control panel application..."
+    log "Creating control panel application from GitHub repository..."
     
-    # Create application directory
-    mkdir -p $CONTROL_PANEL_DIR
+    # Remove any existing installation
+    rm -rf $CONTROL_PANEL_DIR 2>/dev/null || true
+    
+    # Clone the repository
+    log "Cloning repository: $GITHUB_REPO"
+    git clone $GITHUB_REPO $CONTROL_PANEL_DIR || {
+        error "Failed to clone repository. Please check if the repository URL is correct and accessible."
+    }
+    
     cd $CONTROL_PANEL_DIR
     
-    # Remove any existing node_modules and package files
-    rm -rf node_modules package-lock.json .next 2>/dev/null || true
+    # Verify we have the necessary files
+    if [[ ! -f "package.json" ]]; then
+        error "package.json not found in repository. Please ensure the repository contains a valid Next.js project."
+    fi
     
-    # Initialize Node.js project with proper package.json
-    cat > package.json << 'EOF'
-{
-  "name": "hosting-control-panel",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start -p 3000",
-    "lint": "next lint"
-  },
-  "dependencies": {
-    "next": "14.0.0",
-    "react": "^18",
-    "react-dom": "^18",
-    "mysql2": "^3.6.0",
-    "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.0",
-    "@radix-ui/react-accordion": "^1.1.2",
-    "@radix-ui/react-alert-dialog": "^1.0.5",
-    "@radix-ui/react-avatar": "^1.0.4",
-    "@radix-ui/react-checkbox": "^1.0.4",
-    "@radix-ui/react-dialog": "^1.0.5",
-    "@radix-ui/react-dropdown-menu": "^2.0.6",
-    "@radix-ui/react-label": "^2.0.2",
-    "@radix-ui/react-progress": "^1.0.3",
-    "@radix-ui/react-select": "^2.0.0",
-    "@radix-ui/react-separator": "^1.0.3",
-    "@radix-ui/react-slider": "^1.1.2",
-    "@radix-ui/react-slot": "^1.0.2",
-    "@radix-ui/react-switch": "^1.0.3",
-    "@radix-ui/react-tabs": "^1.0.4",
-    "@radix-ui/react-toast": "^1.1.5",
-    "@radix-ui/react-tooltip": "^1.0.7",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.0.0",
-    "lucide-react": "^0.290.0",
-    "tailwind-merge": "^2.0.0",
-    "tailwindcss-animate": "^1.0.7"
-  },
-  "devDependencies": {
-    "typescript": "^5",
-    "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "@types/bcryptjs": "^2.4.4",
-    "@types/jsonwebtoken": "^9.0.0",
-    "autoprefixer": "^10.0.1",
-    "postcss": "^8",
-    "tailwindcss": "^3.3.0",
-    "eslint": "^8",
-    "eslint-config-next": "14.0.0"
-  }
-}
-EOF
-
     # Install dependencies with verbose logging
     log "Installing Node.js dependencies..."
     npm install --verbose --no-audit --no-fund || {
@@ -781,6 +737,25 @@ EOF
         npm --version || error "npm is not properly installed"
         exit 1
     }
+    
+    # Create environment file with database credentials
+    log "Creating environment configuration..."
+    cat > .env.local << EOF
+# Database Configuration
+MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
+PANEL_DB_PASSWORD=$PANEL_DB_PASSWORD
+DATABASE_URL=mysql://panel_user:$PANEL_DB_PASSWORD@localhost:3306/hosting_panel
+
+# Server Configuration
+SERVER_IP=$SERVER_IP
+ADMIN_EMAIL=$ADMIN_EMAIL
+DOMAIN_NAME=$DOMAIN_NAME
+
+# Application Configuration
+NODE_ENV=production
+NEXTAUTH_SECRET=$(openssl rand -base64 32)
+NEXTAUTH_URL=http://$SERVER_IP:3000
+EOF
     
     # Verify Next.js installation
     if [[ ! -f "node_modules/.bin/next" ]]; then
@@ -792,157 +767,6 @@ EOF
         ln -sf $(which next) node_modules/.bin/next 2>/dev/null || true
     fi
     
-    # Create basic app structure
-    mkdir -p app components lib
-    
-    # Create basic layout
-    cat > app/layout.tsx << 'EOF'
-import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
-import './globals.css'
-
-const inter = Inter({ subsets: ['latin'] })
-
-export const metadata: Metadata = {
-  title: 'Hosting Control Panel',
-  description: 'Professional web hosting control panel',
-}
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  return (
-    <html lang="en">
-      <body className={inter.className}>{children}</body>
-    </html>
-  )
-}
-EOF
-
-    # Create basic page
-    cat > app/page.tsx << 'EOF'
-export default function Home() {
-  return (
-    <main className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold text-center mb-8">
-          🚀 Hosting Control Panel
-        </h1>
-        <div className="bg-white rounded-lg shadow-lg p-8">
-          <h2 className="text-2xl font-semibold mb-4">Welcome to Your Control Panel</h2>
-          <p className="text-gray-600 mb-6">
-            Your professional web hosting control panel is now installed and ready to use.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-blue-800">Domain Management</h3>
-              <p className="text-blue-600 text-sm">Manage your domains and subdomains</p>
-            </div>
-            <div className="bg-green-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-green-800">Email Accounts</h3>
-              <p className="text-green-600 text-sm">Create and manage email accounts</p>
-            </div>
-            <div className="bg-purple-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-purple-800">Database Management</h3>
-              <p className="text-purple-600 text-sm">Manage MySQL databases</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </main>
-  )
-}
-EOF
-
-    # Create simplified globals.css without custom properties
-    cat > app/globals.css << 'EOF'
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-body {
-  font-family: system-ui, -apple-system, sans-serif;
-}
-EOF
-
-    # Create Next.js config
-    cat > next.config.js << 'EOF'
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-}
-
-module.exports = nextConfig
-EOF
-
-    # Create simplified Tailwind config
-    cat > tailwind.config.ts << 'EOF'
-import type { Config } from "tailwindcss"
-
-const config = {
-  content: [
-    "./pages/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-    "./app/**/*.{ts,tsx}",
-    "./src/**/*.{ts,tsx}",
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-} satisfies Config
-
-export default config
-EOF
-
-    # Create PostCSS config
-    cat > postcss.config.js << 'EOF'
-module.exports = {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
-}
-EOF
-
-    # Create TypeScript config
-    cat > tsconfig.json << 'EOF'
-{
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "es6"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./*"]
-    }
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
-}
-EOF
-
     # Try building the application with better error handling
     log "Building Next.js application..."
     
@@ -971,7 +795,7 @@ EOF
         error "Next.js installation failed - binary not found"
     fi
     
-    success "Control panel application created successfully"
+    success "Control panel application created successfully from repository"
 }
 
 # Create systemd service
@@ -1191,6 +1015,11 @@ final_configuration() {
             font-size: 0.9rem;
             line-height: 1.5;
         }
+        .repo-info {
+            background: #e6fffa;
+            border-left-color: #38b2ac;
+            margin-top: 1rem;
+        }
     </style>
 </head>
 <body>
@@ -1222,6 +1051,13 @@ final_configuration() {
                 <p><strong>Username:</strong> admin<br>
                 <strong>Password:</strong> admin123<br>
                 <strong>⚠️ Change immediately!</strong></p>
+            </div>
+            
+            <div class="info-card repo-info">
+                <h3>📦 Repository</h3>
+                <p><strong>Source:</strong> Ceoslugpk/new-sub-panel<br>
+                <strong>GitHub:</strong> github.com/Ceoslugpk/new-sub-panel<br>
+                <strong>Version:</strong> Latest</p>
             </div>
         </div>
     </div>
@@ -1258,6 +1094,13 @@ display_summary() {
     if [[ -n "$DOMAIN_NAME" ]]; then
         echo -e "${BLUE}Domain Access:${NC}     https://$DOMAIN_NAME:3000"
     fi
+    echo ""
+    
+    echo -e "${GREEN}📦 REPOSITORY INFORMATION:${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${BLUE}Repository:${NC}        $GITHUB_REPO"
+    echo -e "${BLUE}Local Path:${NC}        $CONTROL_PANEL_DIR"
+    echo -e "${BLUE}Branch:${NC}            main"
     echo ""
     
     echo -e "${GREEN}🔐 CREDENTIALS:${NC}"
@@ -1320,6 +1163,7 @@ display_summary() {
     echo "   Control Panel:  systemctl {start|stop|restart|status} hosting-panel"
     echo "   View Logs:       journalctl -u hosting-panel -f"
     echo "   Backup System:   $CONTROL_PANEL_DIR/scripts/backup-system.sh"
+    echo "   Update Panel:    cd $CONTROL_PANEL_DIR && git pull && npm run build && systemctl restart hosting-panel"
     echo ""
     
     echo -e "${GREEN}📁 IMPORTANT FILES:${NC}"
@@ -1328,10 +1172,11 @@ display_summary() {
     echo "   MySQL Credentials: /root/.mysql_credentials"
     echo "   Web Files:         /var/www/html"
     echo "   Backups:           /var/backups/hosting-panel"
+    echo "   Environment:       $CONTROL_PANEL_DIR/.env.local"
     echo ""
     
     echo -e "${CYAN}🎉 Installation completed successfully!${NC}"
-    echo -e "${CYAN}Thank you for using the Professional Hosting Control Panel!${NC}"
+    echo -e "${CYAN}Your control panel is now running from: $GITHUB_REPO${NC}"
     echo ""
 }
 
