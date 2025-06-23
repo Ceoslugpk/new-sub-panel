@@ -6,7 +6,7 @@ A comprehensive web hosting control panel that rivals cPanel and Plesk, designed
 
 \`\`\`bash
 # Download and run the installer
-wget https://raw.githubusercontent.com/your-repo/vps-control-panel/main/install.sh
+wget https://raw.githubusercontent.com/Ceoslugpk/new-sub-panel/main/install.sh
 chmod +x install.sh
 sudo ./install.sh
 \`\`\`
